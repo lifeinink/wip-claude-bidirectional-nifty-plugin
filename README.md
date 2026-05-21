@@ -1,21 +1,25 @@
 # nfty — ntfy.sh Plugin for Claude Code
 
-Send push notifications from Claude Code sessions to any [ntfy.sh](https://ntfy.sh) topic,
-with a named channel registry and NZ-timezone scheduled delivery.
+Bidirectional push notifications between Claude Code sessions and any [ntfy.sh](https://ntfy.sh) topic.
+Send alerts from Claude, tap action buttons on your phone, and have Claude pick up your reply — across sessions, with end-to-end encryption.
 
 ## Features
 
-- **Channel store** — save ntfy topic URLs with names, descriptions, and optional auth tokens
-- **Send notifications** — title, priority, tags, markdown, file attachments, email forward
-- **Scheduled delivery** — specify delivery time in NZ local time; ntfy.sh handles it server-side (session doesn't need to stay running)
+- **Channel store** — named ntfy topics with auth tokens, encryption keys, and reply channels
+- **Send notifications** — title, priority, tags, markdown, scheduled delivery in NZ local time
 - **Action buttons** — view URL, Android broadcast intent, HTTP callback (up to 3 per message)
-- **Auto-notify** — ask Claude to ping you when a task finishes
-- **CRUD commands** — add, list, update, remove channels via slash commands
+- **Reply tracking** — action buttons post choices back to Claude; replies survive session restarts
+- **AES-256-GCM encryption** — ntfy-compatible end-to-end encryption; the ntfy server never sees plaintext
+- **Scheduled reply polls** — `--check-at` bakes the check time into the notification and auto-wires a `/schedule`
+- **Session hooks** — `SessionStart` picks up any replies received while offline; `SessionEnd` stamps timestamps for clean handoff
+- **Stopper messages** — deprecate a channel from any device; any polling instance auto-deregisters
+- **Auto-notify** — ask Claude to ping you when a long task finishes
 
 ## Requirements
 
-- `curl` — for HTTP requests
-- `python3` (3.9+) — for JSON manipulation and NZ timezone conversion
+- `curl`
+- `python3` 3.9+ (stdlib only for most features)
+- `pip install cryptography` — required for AES-256-GCM encryption and (future) Ed25519 signing
 
 ## Installation
 
@@ -23,21 +27,24 @@ with a named channel registry and NZ-timezone scheduled delivery.
 ln -s /path/to/nfty_plugin ~/.claude/plugins/nfty
 ```
 
-Then restart Claude Code or open a new session.
+Restart Claude Code or open a new session. No MCP server needed.
 
 ## Quick Start
 
 ```
-# Add your ntfy.sh topic as a channel
-/nfty:add alerts https://ntfy.sh/your_unique_topic_name "Work alerts" --mode new
+# Add a channel (--mode new warns if the topic is already in use)
+/nfty:add alerts https://ntfy.sh/your_unique_topic "Work alerts" --mode new
 
 # Send a notification
-/nfty:send alerts "Hello from Claude Code"
+/nfty:send alerts "Tests passed"
 
-# Schedule for NZ morning
-/nfty:send alerts "Daily standup in 5 minutes" --at "2026-06-02 08:55"
+# Schedule for NZ morning — session can close immediately after
+/nfty:send alerts "Standup in 5" --at "2026-06-02 08:55"
 
-# See all commands
+# Ask for approval with reply buttons
+/nfty:send alerts "Deploy to prod?" --with-reply "Approve,Reject"
+
+# Full help
 /nfty:help
 ```
 
@@ -45,57 +52,150 @@ Then restart Claude Code or open a new session.
 
 | Command | Description |
 |---------|-------------|
-| `/nfty:help` | Full help, schema reference, docs link |
+| `/nfty:help [topic]` | Full help and schema reference |
 | `/nfty:channels` | List stored channels |
-| `/nfty:add <name> <url> [desc] [--token tok] [--mode new\|existing]` | Add channel |
-| `/nfty:update <name> <field> <value>` | Update channel field |
-| `/nfty:remove <name>` | Remove channel |
+| `/nfty:add <name> <url> [desc] [--token] [--mode] [--reply] [--encrypt] [--ttl]` | Add channel |
+| `/nfty:update <name> <field> <value>` | Update a channel field |
+| `/nfty:remove <name>` | Remove a channel |
 | `/nfty:send [channel] [message] [options]` | Send notification |
+| `/nfty:reply <enable\|disable\|status> <name>` | Manage reply channel |
+| `/nfty:check` | On-demand poll of pending replies |
+| `/nfty:deprecate <name>` | Send stopper + mark channel deprecated |
+| `/nfty:key <set\|list\|check> [key-id]` | Manage encryption key passwords |
 
 ## Channel Store
 
-Stored at `~/.claude/channels/nfty/channels.json` — global across all projects and Claude Code instances.
+Stored at `~/.claude/channels/nfty/channels.json` — global across projects and Claude Code instances.
 
-### --mode flag (for /nfty:add)
-
-- `--mode new` — polls the topic for existing messages; warns if the topic is already active (avoids accidentally attaching to someone else's public topic)
-- `--mode existing` — verifies the endpoint responds before storing
-- Omit for private/authenticated servers
-
-## Scheduled Delivery (NZ Time)
-
-```
-/nfty:send alerts "Reminder: check logs" --at "2026-06-15 09:30"
-```
-
-Times are in **New Zealand local time** (NZDT/NZST handled automatically via `Pacific/Auckland`).
-Once sent, ntfy.sh queues the message server-side — close your terminal, shut down the instance, doesn't matter.
-
-## Action Buttons
-
-```
-/nfty:send work "Deploy ready for review" \
-  --action-view "Open PR" "https://github.com/org/repo/pull/42" \
-  --action-broadcast "Dismiss" intent=io.heckel.ntfy.DISMISS \
-  --action-http "Approve" "https://myserver.com/deploy/approve"
+```json
+{
+  "channels": [{
+    "name": "alerts",
+    "url": "https://ntfy.sh/your_unique_topic",
+    "description": "Work alerts",
+    "token": null,
+    "default": true,
+    "reply_url": "https://ntfy.sh/your_unique_topic_r1a2b3c4",
+    "encrypt_key": "main",
+    "ntfy_ttl": 43200,
+    "created": "2026-01-01T00:00:00Z"
+  }]
+}
 ```
 
-- `--action-view` — opens a URL when the button is tapped
-- `--action-broadcast` — sends an Android broadcast intent (app-to-app on Android)
-- `--action-http` — makes an HTTP callback (webhooks, approve/reject flows)
+### `/nfty:add` flags
+
+| Flag | Description |
+|------|-------------|
+| `--token <tok>` | Bearer token for authenticated topics |
+| `--mode new` | Polls topic first; warns if already in use |
+| `--mode existing` | Verifies endpoint is reachable before storing |
+| `--reply` | Auto-generate an inbound reply topic |
+| `--encrypt <key-id>` | Encrypt all messages with this key |
+| `--ttl <secs>` | Message retention window (default 43200 = 12h) |
+
+## Send Options
+
+| Flag | Description |
+|------|-------------|
+| `--title "text"` | Bold notification title |
+| `--priority 1-5` | 1=silent … 5=breaks DND |
+| `--tags tag1,tag2` | Emoji shortcodes |
+| `--at "YYYY-MM-DD HH:MM"` | Scheduled delivery in NZ local time |
+| `--with-reply "A,B,C"` | Add reply action buttons; track response across sessions |
+| `--check-at "YYYY-MM-DD HH:MM"` | Schedule a reply poll at this NZ time; bakes deadline into notification body |
+| `--markdown` | Render body as CommonMark |
+| `--ttl <secs>` | Per-send TTL override |
+| `--action-view "Label" "url"` | View URL button |
+| `--action-broadcast "Label" [intent=…]` | Android broadcast intent button |
+| `--action-http "Label" "url" [method=POST]` | HTTP callback button |
+| `--action-open-session "url"` | Shorthand: "Open session" view button |
+
+## Reply Tracking
+
+Claude sends a notification with action buttons. Tapping one posts a reply to the channel's inbound topic. Claude picks it up automatically.
+
+```
+/nfty:send alerts "Proceed with deploy?" --with-reply "Approve,Reject,Snooze"
+```
+
+- Each choice becomes an HTTP action button
+- Reply bodies are **pre-encrypted at send time** — the ntfy server never sees plaintext choices
+- Pending records live at `~/.claude/nfty/pending/` with a TTL matching the channel's `ntfy_ttl`
+- `SessionStart` hook polls for replies received while offline
+- Expired records are cleaned up automatically — no lifecycle leakage
+
+### Cloud vs CLI polling model
+
+| | Cloud Claude Code | CLI Claude Code |
+|---|---|---|
+| Session-start auto-poll | ✓ (capped at 4s) | ✓ (uncapped) |
+| On-demand poll (`/nfty:check`) | ✓ | ✓ |
+| Scheduled poll (`/schedule`) | ✓ | ✓ |
+| Live watcher (v0.3) | ✗ (5s hook limit) | planned |
+
+The ntfy server's message retention window (e.g. 12h) is independent of the 5-second cloud hook timeout. Replies sent within the window will always be picked up at the next session start or on an explicit `/nfty:check`.
+
+### Scheduled reply poll (`--check-at`)
+
+```
+/nfty:send alerts "Approve migration?" \
+  --with-reply "Approve,Reject" \
+  --check-at "2026-06-02 15:00"
+```
+
+This:
+1. Appends `⏰ Reply checked at 15:00 NZST, 2 Jun — tap a button before then.` to the notification body so the deadline is visible on your device
+2. Emits a `SCHEDULE_POLL_AT` signal that Claude immediately converts to a `/schedule` — no manual follow-up needed
+
+## Encryption
+
+AES-256-GCM, using the same protocol as the ntfy web and Android apps (PBKDF2-SHA256, 50k iterations, 16-byte salt, 12-byte IV). Encrypted channels work seamlessly with the official ntfy client if you enter the same password.
+
+```
+/nfty:key set main                    ← set password once (never stored in plaintext)
+/nfty:add alerts https://ntfy.sh/... --encrypt main --reply --mode new
+```
+
+Keys are stored at `~/.claude/channels/nfty/secrets.json` (chmod 600).
+
+## Channel Deprecation (Stopper)
+
+```
+/nfty:deprecate alerts
+```
+
+Sends a secret stopper message to the topic. Any plugin instance that polls that topic automatically deregisters it — clean distributed shutdown without coordinating between machines.
 
 ## Auto-Notification
 
-Ask Claude to notify you when a task is done:
+Ask Claude naturally:
 
-> "Run the migration and send me an ntfy when it's complete"
-> "Run tests in the background and ping me via ntfy"
+> "Run the tests and ping me via ntfy when they finish"
+> "Do the migration and send me an ntfy — high priority if it fails"
 
 Claude uses the default channel and composes a summary automatically.
 
-## Documentation
+## State locations
+
+All runtime state lives outside the plugin directory and is never committed to the repo:
+
+| Path | Contents |
+|------|----------|
+| `~/.claude/channels/nfty/channels.json` | Channel store |
+| `~/.claude/channels/nfty/secrets.json` | Encryption key passwords (chmod 600) |
+| `~/.claude/nfty/pending/` | Pending reply records |
+| `~/.claude/nfty/audit/` | Non-repudiation audit log (v0.4) |
+
+## Roadmap
+
+See [meta/ROADMAP.md](meta/ROADMAP.md) for planned work:
+- **v0.next** — Test harness (unit + interactive phone tests, full cleanup)
+- **v0.3** — CLI-only live watcher (`$CLOSE` remote shutdown, background daemon, `PostToolUse` hook)
+- **v0.4** — Multi-user channels with Ed25519 non-repudiation and N-of-M approval flows
+
+## Links
 
 - ntfy.sh publishing guide: https://docs.ntfy.sh/publish/
 - ntfy.sh emoji tags: https://docs.ntfy.sh/emojis/
-- ntfy.sh action buttons: https://docs.ntfy.sh/publish/#action-buttons
-- Future features: [meta/ROADMAP.md](meta/ROADMAP.md)
+- ntfy.sh encryption: https://docs.ntfy.sh/publish/#e2e-encryption

@@ -13,6 +13,69 @@
 
 ---
 
+## v0.next — Test Harness
+
+Before v0.3: a test framework that covers both automated script-level tests and
+interactive end-to-end tests with a real phone/ntfy client.
+
+### Goals
+
+- Verify script behaviour (channels.sh, send.sh, pending.sh, encrypt.sh, reply-poll.sh)
+  without needing a live ntfy server for every case
+- Support an interactive "phone test" mode that walks the tester through real notification
+  delivery, action button taps, and reply receipt
+- Leave no test artefacts in the repo or in `~/.claude/` after a run
+
+### Layout
+
+```
+tests/
+├── run_tests.sh            # top-level runner: --unit | --integration | --interactive
+├── lib/
+│   ├── assert.sh           # pass/fail helpers, tap-compatible output
+│   └── mock_curl.sh        # stub that intercepts curl calls and records invocations
+├── unit/
+│   ├── test_channels.sh    # add/remove/get/resolve/deprecate logic, no network
+│   ├── test_encrypt.sh     # encrypt→decrypt round-trip, bad-password rejection
+│   ├── test_pending.sh     # create/resolve/expire/cleanup lifecycle
+│   └── test_send_args.sh   # argument parsing, TTL logic, check-at baking
+└── interactive/
+    └── test_phone.sh       # guided manual test: send → tap button → poll reply
+```
+
+### Unit tests
+
+Unit tests replace `curl` with `mock_curl.sh` (sourced before the script under test)
+and use a temp `CHANNELS_FILE` / `SECRETS_FILE` / `PENDING_DIR` pointed at `$(mktemp -d)`.
+A `cleanup()` trap removes all temp dirs on exit — no state leaks into `~/.claude/`.
+
+Each test file prints TAP-compatible output (`ok N — description` / `not ok N — …`).
+`run_tests.sh --unit` runs them all and exits non-zero if any fail.
+
+### Interactive phone test
+
+`run_tests.sh --interactive` launches `tests/interactive/test_phone.sh`, which:
+1. Prompts for an existing channel name to use for the test
+2. Sends a test notification with two action buttons ("Yes", "No")
+3. Waits for the tester to confirm the notification arrived and which button they tapped
+4. Polls the reply topic and checks the pending record resolves correctly
+5. Cleans up: removes the test pending record and any temp state
+
+The interactive test does not require a dedicated test channel — it reuses whatever
+channel the tester names, and all test pending records use a `test_` prefix so they
+are trivially identifiable and cleaned up.
+
+### Cleanup guarantee
+
+Every test (unit and interactive) registers a `trap cleanup EXIT` that removes:
+- All temp directories created during the run
+- Any `test_*` pending records in `~/.claude/nfty/pending/`
+- Any `test_*` channels added to the channel store
+
+The repo itself never holds test state — `tests/` contains only scripts, not fixtures.
+
+---
+
 ## v0.3 — CLI-only Live Watcher (not yet implemented)
 
 **Cloud Claude Code constraint:** hooks on claude.ai/code timeout at 5 seconds.
