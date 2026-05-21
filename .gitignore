@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+*.swp
+*.swo
+
+# Runtime state (all stored outside the plugin dir under ~/.claude/)
+# Included here as a reminder — these paths are never inside this repo:
+#   ~/.claude/channels/nfty/channels.json   channel store
+#   ~/.claude/channels/nfty/secrets.json    encryption + signing keys (chmod 600)
+#   ~/.claude/nfty/pending/                 pending reply records
+#   ~/.claude/nfty/audit/                   non-repudiation audit log (v0.4)

@@ -1,0 +1,6 @@
+{
+  "name": "nfty",
+  "description": "Send ntfy.sh push notifications from Claude Code — channel store, scheduled delivery in NZ time, full message schema support",
+  "version": "0.1.0",
+  "keywords": ["ntfy", "notifications", "alerts", "push"]
+}
