@@ -15,4 +15,7 @@ bash "$PENDING_SH" session-end > /dev/null 2>&1 || true
 # Clean up anything that expired during this session
 bash "$PENDING_SH" cleanup > /dev/null 2>&1 || true
 
+# Remove session inbox (it's only valid within a session)
+rm -f "${HOME}/.claude/nfty/session-inbox.json" 2>/dev/null || true
+
 exit 0
