@@ -18,16 +18,38 @@ Send alerts from Claude, tap action buttons on your phone, and have Claude pick 
 ## Requirements
 
 - `curl`
-- `python3` 3.9+ (stdlib only for most features)
-- `pip install cryptography` — required for AES-256-GCM encryption and (future) Ed25519 signing
+- `python3` 3.9+
+- `cryptography` pip package — required for AES-256-GCM encryption (`pip install cryptography`)
 
 ## Installation
 
 ```bash
-ln -s /path/to/nfty_plugin ~/.claude/plugins/nfty
+git clone https://github.com/lifeinink/wip-claude-bidirectional-nifty-plugin nfty_plugin
+cd nfty_plugin
+python3 install.py
 ```
 
-Restart Claude Code or open a new session. No MCP server needed.
+The installer:
+1. Creates `~/.claude/plugins/nfty → <repo>` symlink so Claude Code discovers the plugin
+2. Adds the plugin's script paths to Claude Code's `settings.json` allowlist so scripts run without permission prompts
+3. Checks / installs the `cryptography` package
+
+Restart Claude Code (or open a new session) after running the installer.
+
+### Manual installation
+
+If you prefer to set things up by hand:
+
+```bash
+# 1. Symlink the plugin
+ln -s /path/to/nfty_plugin ~/.claude/plugins/nfty
+
+# 2. Install the cryptography package
+pip install cryptography
+
+# 3. Add to ~/.claude/settings.json so scripts run without prompts
+#    (add under permissions.allow — see install.py for the exact patterns)
+```
 
 ## Quick Start
 
