@@ -36,13 +36,14 @@ cmd_create() {
   [ -z "$channel" ]   && { echo "Error: channel required" >&2; exit 1; }
   [ -z "$reply_url" ] && { echo "Error: reply_url required" >&2; exit 1; }
 
-  local encrypt_key="" token="" stopper=""
+  local encrypt_key="" token="" stopper="" forced_id=""
   shift 3
   while [ $# -gt 0 ]; do
     case "$1" in
       --encrypt-key) encrypt_key="${2:-}"; shift 2 ;;
       --stopper)     stopper="${2:-}";     shift 2 ;;
       --token)       token="${2:-}";       shift 2 ;;
+      --id)          forced_id="${2:-}";   shift 2 ;;
       *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
   done
@@ -50,9 +51,14 @@ cmd_create() {
   _init
   local now
   now=$(_now_ts)
-  local suffix
-  suffix=$(python3 -c "import secrets; print(secrets.token_hex(4))")
-  local id="nfty_$(date -u +%Y%m%d%H%M%S)_${suffix}"
+  local id
+  if [ -n "$forced_id" ]; then
+    id="$forced_id"
+  else
+    local suffix
+    suffix=$(python3 -c "import secrets; print(secrets.token_hex(4))")
+    id="nfty_$(date -u +%Y%m%d%H%M%S)_${suffix}"
+  fi
   local expires_at=$(( now + ttl_seconds ))
 
   python3 - "$id" "$channel" "$reply_url" "$ttl_seconds" "$now" "$expires_at" \

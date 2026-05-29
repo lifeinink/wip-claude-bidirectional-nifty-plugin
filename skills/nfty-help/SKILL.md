@@ -48,6 +48,7 @@ Official docs: https://docs.ntfy.sh/publish/
 | `--attach <url>` | Attach file by URL |
 | `--icon <url>` | Custom notification icon |
 | `--email addr@example.com` | Forward to email |
+| `--encrypt` | Encrypt this message using the channel's stored key (opt-in; ntfy app must have password configured to decrypt) |
 | `--no-cache` | Don't cache on ntfy server |
 | `--action-view "Label" "https://url"` | Add a "view URL" action button |
 | `--action-broadcast "Label" [intent=...] [extras.key=val]` | Add an Android broadcast intent button |
@@ -150,15 +151,17 @@ Add action buttons and track the user's response across sessions:
 
 ## Encryption
 
-All messages can be encrypted before sending (AES-256-GCM, ntfy-compatible):
+Encryption is **opt-in per send** (AES-256-GCM, ntfy-compatible). The channel stores the key as a credential; use `--encrypt` to activate it for a specific message:
 
 ```
-/nfty:key set main                           ← set password once
+/nfty:key set main                           ← store password once
 /nfty:add alerts https://ntfy.sh/... --encrypt main --reply --mode new
+/nfty:send alerts "sensitive message" --encrypt
 ```
 
-Reply choice bodies are also pre-encrypted at send time — the ntfy server never
-sees plaintext reply content.
+Without `--encrypt`, messages are sent in plaintext even if the channel has a key configured. This lets most notifications be readable in the ntfy app without password setup, while sensitive sends can still be encrypted on demand.
+
+When `--encrypt` is used with `--with-reply`, reply choice bodies are also pre-encrypted — the ntfy server never sees plaintext reply content. The ntfy app must have the channel password configured to decrypt incoming messages.
 
 ## Deprecating a Channel (Stopper)
 

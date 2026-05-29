@@ -108,6 +108,7 @@ _check_stopper_at_url() {
   local url="$1"
   local token="${2:-}"
   local stopper="${3:-}"
+  local encrypt_key="${4:-}"
   [ -z "$stopper" ] && return 0
   local poll_url="${url}/json?poll=1&limit=10&since=0"
   local auth_args=()
@@ -119,6 +120,12 @@ _check_stopper_at_url() {
     [ -z "$line" ] && continue
     local body
     body=$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); print(d.get('message',''))" "$line" 2>/dev/null || true)
+    # Attempt decryption if key is configured — stopper may have been sent encrypted
+    if [ -n "$encrypt_key" ] && [ -n "$body" ]; then
+      local decrypted
+      decrypted=$(bash "$ENCRYPT_SH" decrypt "$encrypt_key" "$body" 2>/dev/null || true)
+      [ -n "$decrypted" ] && body="$decrypted"
+    fi
     if [ "$body" = "$stopper" ]; then
       echo "Stopper message found at $url — this topic has been deprecated." >&2
       return 1
@@ -277,7 +284,7 @@ cmd_add() {
 
   # Check stopper on existing outbound
   if [ "$mode" = "existing" ]; then
-    _check_stopper_at_url "$url" "$token" "$stopper" || {
+    _check_stopper_at_url "$url" "$token" "$stopper" "$encrypt_key" || {
       echo "Cannot register: stopper message found on this topic." >&2; exit 1
     }
   fi
@@ -524,11 +531,14 @@ import json,sys; d=json.load(open(sys.argv[1])); ch=next((c for c in d['channels
 PYEOF
   )
 
-  # Send stopper message to the topic
+  # Send stopper message to the topic — always encrypted if channel has a key
+  # (stopper is a channel integrity signal; encrypting it prevents an intruder
+  #  from triggering deregistration by posting the plaintext stopper pattern)
   if ! $no_send && [ -n "$channel_url" ] && [ -n "$stopper" ]; then
     echo "Sending stopper message to $channel_url ..."
     local send_args=(-c "$channel_url" -m "$stopper")
-    [ -n "$token" ] && send_args+=(-H "Authorization: Bearer $token")
+    [ -n "$token" ]       && send_args+=(-H "Authorization: Bearer $token")
+    [ -n "$encrypt_key" ] && send_args+=(--encrypt)
     bash "$SEND_SH" "${send_args[@]}" 2>/dev/null && echo "Stopper sent." || echo "Warning: could not send stopper message." >&2
   fi
 

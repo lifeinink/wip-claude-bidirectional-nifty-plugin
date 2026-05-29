@@ -1,7 +1,7 @@
 ---
 name: nfty-send
 description: Construct and send an ntfy.sh notification. Use this skill when the user runs /nfty:send or asks to send an ntfy notification, push notification, or ntfy alert.
-argument-hint: [channel] [message] [--title text] [--priority 1-5] [--at "YYYY-MM-DD HH:MM"] [--tags tag1,tag2] [--with-reply "A,B"] [--check-at "YYYY-MM-DD HH:MM"] [--markdown] [--action-view "Label" "url"] [--action-broadcast "Label"]
+argument-hint: [channel] [message] [--title text] [--priority 1-5] [--at "YYYY-MM-DD HH:MM"] [--tags tag1,tag2] [--with-reply "A,B"] [--check-at "YYYY-MM-DD HH:MM"] [--encrypt] [--markdown] [--action-view "Label" "url"] [--action-broadcast "Label"]
 allowed-tools: [Bash]
 ---
 
@@ -35,6 +35,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/send.sh" \
   [--icon <url>] \
   [--email <addr>] \
   [--no-cache] \
+  [--encrypt] \
   [--with-reply ["Choice1,Choice2,..."]] \
   [--check-at "<YYYY-MM-DD HH:MM>"] \
   [--action-view "<Label>" "<url>"] \

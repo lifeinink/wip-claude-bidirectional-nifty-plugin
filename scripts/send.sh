@@ -60,6 +60,7 @@ no_cache=false
 with_reply=""         # empty = no reply; non-empty = comma-separated choices
 ttl_override=""       # override reply window TTL in seconds
 check_at_nz=""        # NZ time to schedule the reply poll (requires --with-reply)
+encrypt=false         # opt-in: use channel's encrypt_key to encrypt this send
 actions=()
 
 while [ $# -gt 0 ]; do
@@ -77,6 +78,7 @@ while [ $# -gt 0 ]; do
     --no-cache)     no_cache=true;      shift ;;
     --ttl)          ttl_override="${2:-}"; shift 2 ;;
     --check-at)     check_at_nz="${2:-}";  shift 2 ;;
+    --encrypt)      encrypt=true;          shift ;;
     --with-reply)
       # Optional comma-separated choices follow if the next arg doesn't start with --
       if [ $# -gt 1 ] && [[ "${2:-}" != --* ]]; then
@@ -164,8 +166,8 @@ print('nfty_' + time.strftime('%Y%m%d%H%M%S', time.gmtime()) + '_' + secrets.tok
     choice="${choice# }"; choice="${choice% }"
     reply_body="NFTY_REPLY:${pending_id}:${choice}"
 
-    # Pre-encrypt the reply body if the reply topic uses encryption
-    if [ -n "$ntfy_reply_enc_key" ]; then
+    # Pre-encrypt the reply body if --encrypt and reply topic has a key
+    if $encrypt && [ -n "$ntfy_reply_enc_key" ]; then
       reply_body=$(bash "$ENCRYPT_SH" encrypt "$ntfy_reply_enc_key" "$reply_body" 2>/dev/null) || {
         echo "Warning: could not encrypt reply body for choice \"$choice\"; sending unencrypted" >&2
         reply_body="NFTY_REPLY:${pending_id}:${choice}"
@@ -218,8 +220,8 @@ PYEOF
 ⏰ Reply checked at ${check_at_human} — tap a button before then."
 fi
 
-# --- Encryption of outbound message ---
-if [ -n "$ntfy_enc_key" ]; then
+# --- Encryption of outbound message (opt-in via --encrypt) ---
+if $encrypt && [ -n "$ntfy_enc_key" ]; then
   encrypted=$(bash "$ENCRYPT_SH" encrypt "$ntfy_enc_key" "$message" 2>/dev/null) || {
     echo "Error: message encryption failed — check encrypt.sh set-key $ntfy_enc_key" >&2; exit 1
   }
@@ -306,7 +308,7 @@ fi
 # --- Post-send: create pending record if reply requested ---
 if [ -n "$with_reply" ] && [ -n "$pending_id" ] && [ -n "$ntfy_reply_url" ]; then
   pending_args=("${channel:-}" "$ntfy_reply_url" "$effective_ttl")
-  [ -n "$ntfy_reply_enc_key" ] && pending_args+=(--encrypt-key "$ntfy_reply_enc_key")
+  $encrypt && [ -n "$ntfy_reply_enc_key" ] && pending_args+=(--encrypt-key "$ntfy_reply_enc_key")
   [ -n "$ntfy_reply_token" ]   && pending_args+=(--token "$ntfy_reply_token")
   # Get stopper from channel store (only when referencing by name, not bare URL)
   if [ -n "$channel" ] && [[ "$channel" != http* ]]; then
@@ -322,6 +324,7 @@ PYEOF
     ) 2>/dev/null || stopper=""
     [ -n "$stopper" ] && pending_args+=(--stopper "$stopper")
   fi
+  pending_args+=(--id "$pending_id")
   bash "$PENDING_SH" create "${pending_args[@]}" > /dev/null 2>&1 || true
 
   # Report expiry in NZ local time

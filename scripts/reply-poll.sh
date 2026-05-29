@@ -50,10 +50,10 @@ while IFS= read -r line; do
   [ -z "$line" ] && continue
 
   # Parse message fields with Python
-  result=$(python3 - "$line" "$encrypt_key" "$stopper_pattern" <<'PYEOF'
+  result=$(python3 - "$line" "$encrypt_key" "$stopper_pattern" "$ENCRYPT_SH" <<'PYEOF'
 import json, sys, subprocess, os
 
-line, encrypt_key, stopper_pattern = sys.argv[1], sys.argv[2], sys.argv[3]
+line, encrypt_key, stopper_pattern, enc_sh = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 try:
     msg = json.loads(line)
 except json.JSONDecodeError:
@@ -70,8 +70,6 @@ msg_id = msg.get('id', '')
 # Attempt decryption if key is provided
 if encrypt_key and body:
     try:
-        plugin_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        enc_sh = os.path.join(plugin_root, 'scripts', 'encrypt.sh')
         result = subprocess.run(
             ['bash', enc_sh, 'decrypt', encrypt_key, body],
             capture_output=True, text=True

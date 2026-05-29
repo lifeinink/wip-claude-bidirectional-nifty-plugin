@@ -120,7 +120,7 @@ Claude sends a notification with action buttons. Tapping one posts a reply to th
 ```
 
 - Each choice becomes an HTTP action button
-- Reply bodies are **pre-encrypted at send time** — the ntfy server never sees plaintext choices
+- Reply bodies are **pre-encrypted at send time** when `--encrypt` is used — the ntfy server never sees plaintext choices
 - Pending records live at `~/.claude/nfty/pending/` with a TTL matching the channel's `ntfy_ttl`
 - `SessionStart` hook polls for replies received while offline
 - Expired records are cleaned up automatically — no lifecycle leakage
@@ -150,11 +150,12 @@ This:
 
 ## Encryption
 
-AES-256-GCM, using the same protocol as the ntfy web and Android apps (PBKDF2-SHA256, 50k iterations, 16-byte salt, 12-byte IV). Encrypted channels work seamlessly with the official ntfy client if you enter the same password.
+AES-256-GCM, using the same protocol as the ntfy web and Android apps (PBKDF2-SHA256, 50k iterations, 16-byte salt, 12-byte IV). Encryption is **opt-in per send** — the channel stores the key as a credential, but messages are plaintext by default so they're readable in the ntfy app without any password setup.
 
 ```
-/nfty:key set main                    ← set password once (never stored in plaintext)
+/nfty:key set main                    ← store password once (never stored in plaintext)
 /nfty:add alerts https://ntfy.sh/... --encrypt main --reply --mode new
+/nfty:send alerts "sensitive message" --encrypt   ← encrypt this send only
 ```
 
 Keys are stored at `~/.claude/channels/nfty/secrets.json` (chmod 600).
