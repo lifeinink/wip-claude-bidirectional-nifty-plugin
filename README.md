@@ -34,7 +34,15 @@ The installer:
 2. Adds the plugin's script paths to Claude Code's `settings.json` allowlist so scripts run without permission prompts
 3. Checks / installs the `cryptography` package
 
-Restart Claude Code (or open a new session) after running the installer.
+Then complete the installation **inside a Claude Code session** (one-time only):
+
+```
+/plugin marketplace add ~/.claude/plugins/marketplaces/nfty-private
+/plugin install nfty@nfty-private
+/reload-plugins
+```
+
+Your `/nfty:*` commands are now available in every session on this machine.
 
 To update to the latest version on any machine where the plugin is installed:
 

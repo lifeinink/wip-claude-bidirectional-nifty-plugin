@@ -7,12 +7,16 @@ Usage:
   python3 install.py --update   # pull latest from origin, then re-verify
 
 What this does:
-  1. Registers the plugin as a private marketplace in known_marketplaces.json
-     so Claude Code discovers the skills and slash commands
-  2. Adds nfty script paths to Claude Code's settings.json allowlist so scripts
+  1. Creates a private marketplace directory with marketplace.json so Claude
+     Code can discover and install the plugin
+  2. Registers the marketplace in known_marketplaces.json
+  3. Adds script paths to Claude Code's settings.json allowlist so scripts
      run without permission prompts
-  3. Checks that the `cryptography` pip package is available (required for
-     AES-256-GCM encryption)
+  4. Checks that the `cryptography` pip package is available
+
+After running this script, complete the installation inside Claude Code:
+  /plugin marketplace add ~/.claude/plugins/marketplaces/nfty-private
+  /plugin install nfty@nfty-private
 """
 
 import json
@@ -96,6 +100,29 @@ if "--update" in sys.argv:
 
 print("\n── Step 1: Plugin marketplace registration")
 PLUGIN_LINK.parent.mkdir(parents=True, exist_ok=True)
+
+# Create marketplace.json (what Claude Code reads to discover installable plugins)
+marketplace_json_dir = MARKETPLACE_DIR / ".claude-plugin"
+marketplace_json_path = marketplace_json_dir / "marketplace.json"
+marketplace_json_dir.mkdir(parents=True, exist_ok=True)
+marketplace_data = {
+    "name": "nfty-private",
+    "owner": {"name": "nfty plugin"},
+    "plugins": [
+        {
+            "name": "nfty",
+            "source": "./plugins/nfty",
+            "description": "Bidirectional ntfy.sh push notifications for Claude Code — "
+                           "channel store, reply tracking, encryption, NZ-timezone scheduled delivery",
+        }
+    ],
+}
+existing_mj = json.loads(marketplace_json_path.read_text()) if marketplace_json_path.exists() else {}
+if existing_mj.get("plugins") == marketplace_data["plugins"]:
+    ok("marketplace.json already correct")
+else:
+    marketplace_json_path.write_text(json.dumps(marketplace_data, indent=2) + "\n")
+    ok(f"Created: {marketplace_json_path}")
 
 # Symlink our repo into the marketplace plugins directory
 if PLUGIN_LINK.is_symlink():
@@ -193,10 +220,11 @@ action = "Update" if "--update" in sys.argv else "Installation"
 print(f"""
 \033[32m{action} complete.\033[0m
 
-Restart Claude Code (or open a new session) for the plugin to load.
+\033[1mFinal step — run these two commands inside Claude Code:\033[0m
 
-Next steps:
-  /nfty:add <name> https://ntfy.sh/<topic> [--reply] [--mode new]
-  /nfty:send <name> "Hello from Claude Code"
-  /nfty:help
+  /plugin marketplace add {MARKETPLACE_DIR}
+  /plugin install nfty@nfty-private
+
+Then run \033[1m/reload-plugins\033[0m and your \033[1m/nfty:*\033[0m commands will be available.
+(You only need to do this once — the plugin persists across sessions.)
 """)
