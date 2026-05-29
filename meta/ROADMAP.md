@@ -13,20 +13,36 @@
 
 ---
 
-## v0.next — Test Harness
+## v0.next-a — Debug Channel + Test Harness
 
-Before v0.3: a test framework that covers both automated script-level tests and
-interactive end-to-end tests with a real phone/ntfy client.
+### Debug channel (implemented)
 
-### Goals
+An optional global ntfy topic that plugin scripts POST to when errors or notable
+events occur. Configured once; fires from any Claude Code instance where the plugin
+is installed. Errors from other projects propagate back to you in real time.
+
+- `channels.sh set-debug <url>` / `clear-debug` / `debug-send <msg>`
+- `/nfty:debug set|clear|test` slash command
+- All scripts call `channels.sh debug-send` on errors — never blocks the main flow
+  (`|| true` everywhere so a debug failure can't cascade)
+- Debug messages include: script name, error type, channel name, session context
+- Pairs with v0.next-b: debug traces are linked in auto-filed GitHub issues
+
+### Test harness
+
+A test framework covering automated script-level tests and interactive end-to-end
+tests with a real phone/ntfy client.
+
+#### Goals
 
 - Verify script behaviour (channels.sh, send.sh, pending.sh, encrypt.sh, reply-poll.sh)
   without needing a live ntfy server for every case
 - Support an interactive "phone test" mode that walks the tester through real notification
   delivery, action button taps, and reply receipt
 - Leave no test artefacts in the repo or in `~/.claude/` after a run
+- Test that errors DO reach the debug channel (if configured)
 
-### Layout
+#### Layout
 
 ```
 tests/
@@ -38,41 +54,50 @@ tests/
 │   ├── test_channels.sh    # add/remove/get/resolve/deprecate logic, no network
 │   ├── test_encrypt.sh     # encrypt→decrypt round-trip, bad-password rejection
 │   ├── test_pending.sh     # create/resolve/expire/cleanup lifecycle
-│   └── test_send_args.sh   # argument parsing, TTL logic, check-at baking
+│   ├── test_send_args.sh   # argument parsing, TTL logic, check-at baking
+│   └── test_debug.sh       # debug-send fires on error, no-op when unconfigured
 └── interactive/
     └── test_phone.sh       # guided manual test: send → tap button → poll reply
 ```
 
-### Unit tests
-
-Unit tests replace `curl` with `mock_curl.sh` (sourced before the script under test)
-and use a temp `CHANNELS_FILE` / `SECRETS_FILE` / `PENDING_DIR` pointed at `$(mktemp -d)`.
-A `cleanup()` trap removes all temp dirs on exit — no state leaks into `~/.claude/`.
+Unit tests replace `curl` with `mock_curl.sh` and use a temp `CHANNELS_FILE` /
+`SECRETS_FILE` / `PENDING_DIR` pointed at `$(mktemp -d)`. A `cleanup()` trap removes
+all temp state on exit — no leaks into `~/.claude/` or the repo.
 
 Each test file prints TAP-compatible output (`ok N — description` / `not ok N — …`).
 `run_tests.sh --unit` runs them all and exits non-zero if any fail.
 
-### Interactive phone test
+---
 
-`run_tests.sh --interactive` launches `tests/interactive/test_phone.sh`, which:
-1. Prompts for an existing channel name to use for the test
-2. Sends a test notification with two action buttons ("Yes", "No")
-3. Waits for the tester to confirm the notification arrived and which button they tapped
-4. Polls the reply topic and checks the pending record resolves correctly
-5. Cleans up: removes the test pending record and any temp state
+## v0.next-b — GitHub Issue Skill
 
-The interactive test does not require a dedicated test channel — it reuses whatever
-channel the tester names, and all test pending records use a `test_` prefix so they
-are trivially identifiable and cleaned up.
+A `/nfty:issue` skill Claude can invoke when it detects a plugin correctness problem —
+or that you can invoke manually. Bridges the debug channel and the issue tracker so
+errors from the field can become bugs without manual transcription.
 
-### Cleanup guarantee
+### Flow
 
-Every test (unit and interactive) registers a `trap cleanup EXIT` that removes:
-- All temp directories created during the run
-- Any `test_*` pending records in `~/.claude/nfty/pending/`
-- Any `test_*` channels added to the channel store
+1. **Search first** — `gh issue list --search "..."` to find matching open issues
+2. **If duplicate found** — add a comment with new context (debug trace excerpt,
+   affected channel, script version) rather than filing a new issue
+3. **If new** — `gh issue create` with structured body: error description, script name,
+   sanitised channel info, link to relevant debug channel messages if available
+4. **Opt-in per instance** — a `debug_auto_issue: true` flag in the global config
+   enables automatic issue filing when the debug channel receives a critical error;
+   off by default to avoid noise from multiple active instances
 
-The repo itself never holds test state — `tests/` contains only scripts, not fixtures.
+### Debug trace integration
+
+Debug channel messages include a `session_id` field. When filing an issue (auto or
+manual), the skill can include a direct link to the relevant debug topic URL so the
+maintainer can pull the full trace from ntfy. The debug topic itself is not shared
+in the issue body (it may be private) — only linked if the user opts in.
+
+### Deduplication
+
+Before auto-filing, check for an open issue with the same `[auto]` tag and matching
+error signature (script name + error type) filed within the last 7 days. If found,
+increment a counter comment rather than creating a new issue.
 
 ---
 

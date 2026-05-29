@@ -15,6 +15,7 @@ set -euo pipefail
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PENDING_SH="${PLUGIN_ROOT}/scripts/pending.sh"
 REPLY_POLL_SH="${PLUGIN_ROOT}/scripts/reply-poll.sh"
+CHANNELS_SH="${PLUGIN_ROOT}/scripts/channels.sh"
 PENDING_DIR="${HOME}/.claude/nfty/pending"
 INBOX="${HOME}/.claude/nfty/session-inbox.json"
 
@@ -162,5 +163,12 @@ PYEOF
 
 # 3. Print whatever the Python script produced (may be empty if no activity)
 [ -n "$output" ] && echo "$output"
+
+# 4. If any polls timed out, fire a debug notification (no-op if no debug channel set)
+if echo "$output" | grep -q "timed out"; then
+  bash "$CHANNELS_SH" debug-send \
+    "session-start: poll timeout — some pending replies not checked" \
+    --title "nfty poll timeout" --priority 2 2>/dev/null || true
+fi
 
 exit 0

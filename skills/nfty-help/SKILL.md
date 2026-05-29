@@ -30,6 +30,7 @@ Official docs: https://docs.ntfy.sh/publish/
 | `/nfty:reply <enable\|disable\|status> <name>` | Manage reply channel on a stored channel |
 | `/nfty:deprecate <name>` | Send stopper + mark channel as deprecated |
 | `/nfty:key <set\|list\|check> [key-id]` | Manage encryption key passwords |
+| `/nfty:debug <set\|clear\|status\|test>` | Manage global debug channel |
 
 ---
 

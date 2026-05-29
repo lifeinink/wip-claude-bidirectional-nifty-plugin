@@ -14,6 +14,11 @@
 #   channels.sh enable-reply <name> [--mode new|existing-inbound <url>]
 #   channels.sh disable-reply <name>
 #   channels.sh deprecate <name> [--no-send]    # mark deprecated (optionally send stopper msg)
+#   channels.sh set-debug <url> [--token <tok>] # set global debug channel
+#   channels.sh get-debug                       # print debug channel URL (or empty)
+#   channels.sh clear-debug                     # remove debug channel config
+#   channels.sh debug-send <message> [--title T] [--priority P] [--context C]
+#     Post to debug channel. No-op (exit 0) if not configured. Never fails the caller.
 #
 # Reply channel URL is auto-generated as <base_topic_url>_r<8-hex-random>
 # Stopper pattern is auto-generated as NFTY_STOP_<name>_<creation_hash>
@@ -563,6 +568,104 @@ print(f'Channel "{name}" marked as deprecated.')
 PYEOF
 }
 
+cmd_set_debug() {
+  local url="${1:-}"
+  [ -z "$url" ] && { echo "Error: debug channel URL required" >&2; exit 1; }
+  local token=""
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --token) token="${2:-}"; shift 2 ;;
+      *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+  done
+  _init_store
+  python3 - "$STORE" "$url" "$token" <<'PYEOF'
+import json, sys
+store, url, token = sys.argv[1], sys.argv[2], sys.argv[3]
+data = json.load(open(store))
+data['debug_channel'] = {'url': url, 'token': token or None}
+with open(store, 'w') as f:
+    json.dump(data, f, indent=2); f.write('\n')
+print(f'Debug channel set: {url}')
+PYEOF
+}
+
+cmd_get_debug() {
+  _init_store
+  python3 - "$STORE" <<'PYEOF'
+import json, sys
+data = json.load(open(sys.argv[1]))
+dc = data.get('debug_channel')
+print(dc['url'] if dc else '')
+PYEOF
+}
+
+cmd_clear_debug() {
+  _init_store
+  python3 - "$STORE" <<'PYEOF'
+import json, sys
+data = json.load(open(sys.argv[1]))
+data.pop('debug_channel', None)
+with open(sys.argv[1], 'w') as f:
+    json.dump(data, f, indent=2); f.write('\n')
+print('Debug channel cleared.')
+PYEOF
+}
+
+cmd_debug_send() {
+  # No-op if debug channel is not configured — never fails the caller
+  local message="${1:-}"
+  [ -z "$message" ] && return 0
+  local title="nfty debug" priority="2" context=""
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --title)    title="${2:-}";   shift 2 ;;
+      --priority) priority="${2:-}"; shift 2 ;;
+      --context)  context="${2:-}"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  # Read debug channel config
+  local debug_url debug_token
+  debug_url=$(python3 - "$STORE" <<'PYEOF'
+import json, sys, os
+store = sys.argv[1]
+if not os.path.exists(store): print(''); sys.exit(0)
+data = json.load(open(store))
+dc = data.get('debug_channel')
+print(dc['url'] if dc else '')
+PYEOF
+  ) 2>/dev/null || return 0
+  [ -z "$debug_url" ] && return 0
+
+  debug_token=$(python3 - "$STORE" <<'PYEOF'
+import json, sys, os
+store = sys.argv[1]
+if not os.path.exists(store): print(''); sys.exit(0)
+data = json.load(open(store))
+dc = data.get('debug_channel', {})
+print(dc.get('token') or '')
+PYEOF
+  ) 2>/dev/null || true
+
+  # Append context if provided
+  [ -n "$context" ] && message="${message}
+
+Context: ${context}"
+
+  local curl_args=(-s -o /dev/null -w "%{http_code}"
+    -H "Title: ${title}"
+    -H "Priority: ${priority}"
+    -H "Tags: warning"
+    -d "$message")
+  [ -n "$debug_token" ] && curl_args+=(-H "Authorization: Bearer ${debug_token}")
+
+  curl "${curl_args[@]}" "$debug_url" > /dev/null 2>&1 || true
+}
+
 case "${1:-}" in
   list)           cmd_list ;;
   get)            cmd_get "${2:-}" ;;
@@ -574,10 +677,15 @@ case "${1:-}" in
   enable-reply)   shift; cmd_enable_reply "$@" ;;
   disable-reply)  cmd_disable_reply "${2:-}" ;;
   deprecate)      shift; cmd_deprecate "$@" ;;
+  set-debug)      shift; cmd_set_debug "$@" ;;
+  get-debug)      cmd_get_debug ;;
+  clear-debug)    cmd_clear_debug ;;
+  debug-send)     shift; cmd_debug_send "$@" ;;
   *)
     echo "Usage: channels.sh <command> [args]"
     echo "Commands: list, get, resolve, add, update, remove, default,"
-    echo "          enable-reply, disable-reply, deprecate"
+    echo "          enable-reply, disable-reply, deprecate,"
+    echo "          set-debug, get-debug, clear-debug, debug-send"
     exit 1
     ;;
 esac

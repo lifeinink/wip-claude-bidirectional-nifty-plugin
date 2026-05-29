@@ -124,11 +124,13 @@ if [ -z "$channel" ]; then
   resolved=$(bash "$CHANNELS_SH" resolve "" 2>/dev/null) || {
     echo "Error: no channel specified and no default channel in store." >&2
     echo "Run: /nfty:add <name> <url>" >&2
+    bash "$CHANNELS_SH" debug-send "send.sh: no default channel configured" --title "nfty send error" --priority 3 2>/dev/null || true
     exit 1
   }
 else
   resolved=$(bash "$CHANNELS_SH" resolve "$channel" 2>/dev/null) || {
     echo "Error: channel \"$channel\" not found. Run /nfty:channels to see stored channels." >&2
+    bash "$CHANNELS_SH" debug-send "send.sh: channel not found: $channel" --title "nfty send error" --priority 3 2>/dev/null || true
     exit 1
   }
 fi
@@ -223,7 +225,9 @@ fi
 # --- Encryption of outbound message (opt-in via --encrypt) ---
 if $encrypt && [ -n "$ntfy_enc_key" ]; then
   encrypted=$(bash "$ENCRYPT_SH" encrypt "$ntfy_enc_key" "$message" 2>/dev/null) || {
-    echo "Error: message encryption failed — check encrypt.sh set-key $ntfy_enc_key" >&2; exit 1
+    echo "Error: message encryption failed — check encrypt.sh set-key $ntfy_enc_key" >&2
+    bash "$CHANNELS_SH" debug-send "send.sh: encryption failed for key $ntfy_enc_key on channel ${channel:-<default>}" --title "nfty encrypt error" --priority 3 2>/dev/null || true
+    exit 1
   }
   message="$encrypted"
   # Encrypted messages are base64; disable markdown if it was auto-set

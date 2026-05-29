@@ -44,6 +44,28 @@ python3 ~/.claude/plugins/nfty/install.py --update
 
 This pulls from `origin/main`, then re-runs the allowlist check in case new scripts were added.
 
+### Using the plugin across multiple projects
+
+The plugin is installed **globally** — the symlink lives at `~/.claude/plugins/nfty` and is available in every Claude Code session on that machine, regardless of which project is open. No per-project setup is needed.
+
+To use it in another project:
+1. Open a Claude Code session in that project (the plugin is already loaded)
+2. Run `/nfty:channels` to confirm your channels are visible
+3. Use `/nfty:send`, `/nfty:check`, etc. as normal
+
+Channels, secrets, and pending records all live under `~/.claude/` and are shared across all projects.
+
+### Debug channel (optional but recommended for multi-project use)
+
+The debug channel lets you see errors from any instance in real time — useful when the plugin is running in a background project you're not watching:
+
+```
+/nfty:debug set https://ntfy.sh/your_private_debug_topic
+/nfty:debug test
+```
+
+Once set, any script error (encryption failure, channel not found, poll timeout) will POST to that topic automatically from every project.
+
 ### Manual installation
 
 If you prefer to set things up by hand:
