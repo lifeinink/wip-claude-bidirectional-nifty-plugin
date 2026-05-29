@@ -7,7 +7,8 @@ Usage:
   python3 install.py --update   # pull latest from origin, then re-verify
 
 What this does:
-  1. Creates ~/.claude/plugins/nfty → <this directory> symlink
+  1. Registers the plugin as a private marketplace in known_marketplaces.json
+     so Claude Code discovers the skills and slash commands
   2. Adds nfty script paths to Claude Code's settings.json allowlist so scripts
      run without permission prompts
   3. Checks that the `cryptography` pip package is available (required for
@@ -17,14 +18,18 @@ What this does:
 import json
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 PLUGIN_DIR = Path(__file__).resolve().parent
-PLUGIN_LINK = Path.home() / ".claude" / "plugins" / "nfty"
-SETTINGS_FILE = Path.home() / ".claude" / "settings.json"
+CLAUDE_DIR = Path.home() / ".claude"
+MARKETPLACE_DIR = CLAUDE_DIR / "plugins" / "marketplaces" / "nfty-private"
+PLUGIN_LINK = MARKETPLACE_DIR / "plugins" / "nfty"
+KNOWN_MARKETPLACES = CLAUDE_DIR / "plugins" / "known_marketplaces.json"
+SETTINGS_FILE = CLAUDE_DIR / "settings.json"
 
 # Bash permission patterns that cover all nfty script invocations.
-# Uses the symlink path so they work regardless of where the repo lives.
+# Uses the marketplace plugin path so they work regardless of where the repo lives.
 ALLOW_PATTERNS = [
     f"Bash(bash {PLUGIN_LINK}/scripts/send.sh*)",
     f"Bash(bash {PLUGIN_LINK}/scripts/channels.sh*)",
@@ -56,7 +61,6 @@ def run(cmd, **kwargs):
 
 if "--update" in sys.argv:
     print("\n── Step 0: Pull latest from origin")
-    # Check this is actually a git repo
     if not (PLUGIN_DIR / ".git").exists():
         err("Plugin directory is not a git repo — cannot update automatically")
         sys.exit(1)
@@ -66,7 +70,6 @@ if "--update" in sys.argv:
         err(f"git fetch failed: {fetch.stderr.strip()}")
         sys.exit(1)
 
-    # Count commits we're behind
     behind = run(
         ["git", "-C", str(PLUGIN_DIR), "rev-list", "HEAD..origin/main", "--count"]
     )
@@ -78,7 +81,6 @@ if "--update" in sys.argv:
         pull = run(["git", "-C", str(PLUGIN_DIR), "pull", "--ff-only", "origin", "main"])
         if pull.returncode == 0:
             ok(f"Pulled {count} new commit(s)")
-            # Show what changed
             log = run(
                 ["git", "-C", str(PLUGIN_DIR), "log", f"HEAD~{count}..HEAD", "--oneline"]
             )
@@ -90,30 +92,51 @@ if "--update" in sys.argv:
             sys.exit(1)
 
 
-# ── 1. Symlink ────────────────────────────────────────────────────────────────
+# ── 1. Marketplace registration ───────────────────────────────────────────────
 
-print("\n── Step 1: Plugin symlink")
+print("\n── Step 1: Plugin marketplace registration")
 PLUGIN_LINK.parent.mkdir(parents=True, exist_ok=True)
 
+# Symlink our repo into the marketplace plugins directory
 if PLUGIN_LINK.is_symlink():
     target = PLUGIN_LINK.resolve()
     if target == PLUGIN_DIR:
-        ok(f"{PLUGIN_LINK} → {PLUGIN_DIR} (already correct)")
+        ok(f"Plugin symlink correct: {PLUGIN_LINK} → {PLUGIN_DIR}")
     else:
-        warn(f"Symlink exists but points to {target}")
-        answer = input("    Replace it? [y/N] ").strip().lower()
-        if answer == "y":
-            PLUGIN_LINK.unlink()
-            PLUGIN_LINK.symlink_to(PLUGIN_DIR)
-            ok(f"Replaced: {PLUGIN_LINK} → {PLUGIN_DIR}")
-        else:
-            warn("Skipped — existing symlink kept")
+        warn(f"Symlink points to {target}, re-pointing to {PLUGIN_DIR}")
+        PLUGIN_LINK.unlink()
+        PLUGIN_LINK.symlink_to(PLUGIN_DIR)
+        ok(f"Updated: {PLUGIN_LINK} → {PLUGIN_DIR}")
 elif PLUGIN_LINK.exists():
     err(f"{PLUGIN_LINK} exists and is not a symlink — please remove it manually")
     sys.exit(1)
 else:
     PLUGIN_LINK.symlink_to(PLUGIN_DIR)
     ok(f"Created: {PLUGIN_LINK} → {PLUGIN_DIR}")
+
+# Register the marketplace in known_marketplaces.json
+KNOWN_MARKETPLACES.parent.mkdir(parents=True, exist_ok=True)
+if KNOWN_MARKETPLACES.exists():
+    with open(KNOWN_MARKETPLACES) as f:
+        known = json.load(f)
+else:
+    known = {}
+
+now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+mkt_entry = {
+    "source": {"source": "directory", "path": str(MARKETPLACE_DIR)},
+    "installLocation": str(MARKETPLACE_DIR),
+    "lastUpdated": now_iso,
+}
+
+if known.get("nfty-private", {}).get("installLocation") == str(MARKETPLACE_DIR):
+    ok("Marketplace already registered")
+else:
+    known["nfty-private"] = mkt_entry
+    with open(KNOWN_MARKETPLACES, "w") as f:
+        json.dump(known, f, indent=2)
+        f.write("\n")
+    ok(f"Registered marketplace: nfty-private → {MARKETPLACE_DIR}")
 
 
 # ── 2. settings.json allowlist ────────────────────────────────────────────────
@@ -170,7 +193,7 @@ action = "Update" if "--update" in sys.argv else "Installation"
 print(f"""
 \033[32m{action} complete.\033[0m
 
-Restart Claude Code (or open a new session) for any changes to take effect.
+Restart Claude Code (or open a new session) for the plugin to load.
 
 Next steps:
   /nfty:add <name> https://ntfy.sh/<topic> [--reply] [--mode new]
