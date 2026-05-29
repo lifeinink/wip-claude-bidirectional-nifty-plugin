@@ -4,11 +4,12 @@
 #   base64(PBKDF2-SHA256-salt[16] + AES-GCM-IV[12] + ciphertext+tag)
 #
 # Usage:
-#   encrypt.sh check                       # print status: ok, missing-lib, or no-keys
-#   encrypt.sh set-key <key-id>            # interactively store / update a key password
-#   encrypt.sh list-keys                   # list configured key IDs
-#   encrypt.sh encrypt <key-id> <text>     # output base64 ciphertext (to stdout)
-#   encrypt.sh decrypt <key-id> <b64>      # output plaintext (to stdout)
+#   encrypt.sh check                                  # print status: ok, missing-lib, or no-keys
+#   encrypt.sh set-key <key-id>                       # interactively store / update a key password
+#   encrypt.sh set-key <key-id> --password <pass>     # non-interactive (scripted/test use only)
+#   encrypt.sh list-keys                              # list configured key IDs
+#   encrypt.sh encrypt <key-id> <text>                # output base64 ciphertext (to stdout)
+#   encrypt.sh decrypt <key-id> <b64>                 # output plaintext (to stdout)
 
 set -euo pipefail
 
@@ -40,15 +41,30 @@ cmd_set_key() {
   [ -z "$key_id" ] && { echo "Error: key-id required" >&2; exit 1; }
   _init_secrets
 
-  # Prompt securely
-  local password
-  read -r -s -p "Password for key \"$key_id\": " password
-  echo
-  local confirm
-  read -r -s -p "Confirm password: " confirm
-  echo
-  [ "$password" != "$confirm" ] && { echo "Error: passwords do not match" >&2; exit 1; }
-  [ -z "$password" ] && { echo "Error: password cannot be empty" >&2; exit 1; }
+  local password=""
+  local non_interactive=false
+
+  # Check for --password flag (scripted/test use — skips interactive prompts)
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --password) non_interactive=true; password="${2:-}"; shift 2 ;;
+      *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+  done
+
+  if $non_interactive; then
+    [ -z "$password" ] && { echo "Error: --password value cannot be empty" >&2; exit 1; }
+  else
+    # Prompt securely
+    read -r -s -p "Password for key \"$key_id\": " password
+    echo
+    local confirm
+    read -r -s -p "Confirm password: " confirm
+    echo
+    [ "$password" != "$confirm" ] && { echo "Error: passwords do not match" >&2; exit 1; }
+    [ -z "$password" ] && { echo "Error: password cannot be empty" >&2; exit 1; }
+  fi
 
   python3 - "$key_id" "$password" <<'PYEOF'
 import json, sys, os
@@ -174,7 +190,7 @@ PYEOF
 
 case "${1:-}" in
   check)    cmd_check ;;
-  set-key)  cmd_set_key "${2:-}" ;;
+  set-key)  shift; cmd_set_key "$@" ;;
   list-keys) cmd_list_keys ;;
   encrypt)  cmd_encrypt "${2:-}" "${3:-}" ;;
   decrypt)  cmd_decrypt "${2:-}" "${3:-}" ;;
