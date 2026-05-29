@@ -36,6 +36,14 @@ The installer:
 
 Restart Claude Code (or open a new session) after running the installer.
 
+To update to the latest version on any machine where the plugin is installed:
+
+```bash
+python3 ~/.claude/plugins/nfty/install.py --update
+```
+
+This pulls from `origin/main`, then re-runs the allowlist check in case new scripts were added.
+
 ### Manual installation
 
 If you prefer to set things up by hand:

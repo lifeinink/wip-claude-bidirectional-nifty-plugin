@@ -2,18 +2,19 @@
 """
 nfty plugin installer for Claude Code.
 
+Usage:
+  python3 install.py            # install / verify installation (idempotent)
+  python3 install.py --update   # pull latest from origin, then re-verify
+
 What this does:
   1. Creates ~/.claude/plugins/nfty → <this directory> symlink
   2. Adds nfty script paths to Claude Code's settings.json allowlist so scripts
      run without permission prompts
   3. Checks that the `cryptography` pip package is available (required for
      AES-256-GCM encryption)
-
-Safe to re-run — all steps are idempotent.
 """
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -35,10 +36,6 @@ ALLOW_PATTERNS = [
 ]
 
 
-def step(msg):
-    print(f"  {msg}")
-
-
 def ok(msg):
     print(f"  \033[32m✓\033[0m {msg}")
 
@@ -49,6 +46,48 @@ def warn(msg):
 
 def err(msg):
     print(f"  \033[31m✗\033[0m {msg}")
+
+
+def run(cmd, **kwargs):
+    return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+
+
+# ── 0. Update (optional) ──────────────────────────────────────────────────────
+
+if "--update" in sys.argv:
+    print("\n── Step 0: Pull latest from origin")
+    # Check this is actually a git repo
+    if not (PLUGIN_DIR / ".git").exists():
+        err("Plugin directory is not a git repo — cannot update automatically")
+        sys.exit(1)
+
+    fetch = run(["git", "-C", str(PLUGIN_DIR), "fetch", "origin"])
+    if fetch.returncode != 0:
+        err(f"git fetch failed: {fetch.stderr.strip()}")
+        sys.exit(1)
+
+    # Count commits we're behind
+    behind = run(
+        ["git", "-C", str(PLUGIN_DIR), "rev-list", "HEAD..origin/main", "--count"]
+    )
+    count = behind.stdout.strip()
+
+    if count == "0":
+        ok("Already up to date")
+    else:
+        pull = run(["git", "-C", str(PLUGIN_DIR), "pull", "--ff-only", "origin", "main"])
+        if pull.returncode == 0:
+            ok(f"Pulled {count} new commit(s)")
+            # Show what changed
+            log = run(
+                ["git", "-C", str(PLUGIN_DIR), "log", f"HEAD~{count}..HEAD", "--oneline"]
+            )
+            for line in log.stdout.strip().splitlines():
+                print(f"    {line}")
+        else:
+            err("git pull --ff-only failed (local changes may be blocking it)")
+            print(f"    {pull.stderr.strip()}")
+            sys.exit(1)
 
 
 # ── 1. Symlink ────────────────────────────────────────────────────────────────
@@ -116,11 +155,7 @@ try:
     ok("cryptography package available")
 except ImportError:
     warn("cryptography not installed — attempting pip install ...")
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "cryptography", "--quiet"],
-        capture_output=True,
-        text=True,
-    )
+    result = run([sys.executable, "-m", "pip", "install", "cryptography", "--quiet"])
     if result.returncode == 0:
         ok("Installed successfully")
     else:
@@ -131,10 +166,11 @@ except ImportError:
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 
+action = "Update" if "--update" in sys.argv else "Installation"
 print(f"""
-\033[32mInstallation complete.\033[0m
+\033[32m{action} complete.\033[0m
 
-Restart Claude Code (or open a new session) for hooks and slash commands to activate.
+Restart Claude Code (or open a new session) for any changes to take effect.
 
 Next steps:
   /nfty:add <name> https://ntfy.sh/<topic> [--reply] [--mode new]
